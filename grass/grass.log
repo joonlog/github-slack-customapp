@@ -1,8 +1,13 @@
 nohup: ignoring input
-서버 실행 중... http://localhost:8080/{status,grass,contribs}
-2025/06/01 15:10:34 [/grass] 요청 수신
-2025/06/01 15:10:34 [/grass] 응답 JSON: {ResponseType:in_channel Blocks:[] Text:🌱 *joonlog* 님의 GitHub 잔디 그래프 보기:
-<https://ghchart.rshah.org/joonlog>}
-2025/06/01 15:13:02 [/grass] 요청 수신
-2025/06/01 15:13:02 [/grass] 응답 JSON: {ResponseType:in_channel Blocks:[] Text:🌱 *haniscloud* 님의 GitHub 잔디 그래프 보기:
-<https://ghchart.rshah.org/haniscloud>}
+서버 실행 중... http://localhost:8080/{status,grass}
+2025/06/01 18:14:17 🔤 Slack 입력 text: ''
+2025/06/01 18:14:29 🔤 Slack 입력 text: 'joonlog'
+2025/06/01 18:14:29 🌱 /grass 요청 수신됨 - username: joonlog
+2025/06/01 19:14:01 🔤 Slack 입력 text: 'joonlog'
+2025/06/01 19:14:01 🌱 /grass 요청 수신됨 - username: joonlog
+2025/06/01 19:15:21 🔤 Slack 입력 text: 'joonlog'
+2025/06/01 19:15:21 🌱 /grass 요청 수신됨 - username: joonlog
+2025/06/01 19:15:31 🔤 Slack 입력 text: 'joonlog'
+2025/06/01 19:15:31 🌱 /grass 요청 수신됨 - username: joonlog
+2025/06/01 19:16:01 🔤 Slack 입력 text: 'joonlog'
+2025/06/01 19:16:01 🌱 /grass 요청 수신됨 - username: joonlog
