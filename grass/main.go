@@ -12,7 +12,16 @@ import (
 )
 
 // ─────────────────────────────────────────────────────
-// 1) GitHubUser: GitHub API에서 받아올 사용자 정보 일부
+// SlackResponse: Slack에 보낼 기본 JSON 구조
+// ─────────────────────────────────────────────────────
+type SlackResponse struct {
+	ResponseType string        `json:"response_type"`    // "in_channel" or "ephemeral"
+	Blocks       []interface{} `json:"blocks,omitempty"` // Block Kit (이미지 삽입용)
+	Text         string        `json:"text,omitempty"`   // 기본 텍스트 (fallback)
+}
+
+// ─────────────────────────────────────────────────────
+// GitHubUser: GitHub REST API에서 받아올 사용자 정보 일부
 // ─────────────────────────────────────────────────────
 type GitHubUser struct {
 	Login       string `json:"login"`
@@ -24,62 +33,44 @@ type GitHubUser struct {
 }
 
 // ─────────────────────────────────────────────────────
-// 2) SlackResponse: 슬랙으로 응답할 JSON 형식
+// handleSlackStatus: /status {username} → GitHub 기본 정보 출력
 // ─────────────────────────────────────────────────────
-type SlackResponse struct {
-	ResponseType string `json:"response_type"` // "in_channel" or "ephemeral"
-	Text         string `json:"text"`          // 본문 텍스트 (Markdown 가능)
-	// Attachments  []interface{} `json:"attachments,omitempty"` // 필요시 확장
-}
-
-// ─────────────────────────────────────────────────────
-// 3) handleSlackCommand: 슬랙 Slash Command 요청 처리
-// ─────────────────────────────────────────────────────
-func handleSlackCommand(w http.ResponseWriter, r *http.Request) {
-	// 3.1) POST가 아니면 405
+func handleSlackStatus(w http.ResponseWriter, r *http.Request) {
+	// 1) POST가 아니면 405
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	// 3.2) 폼 파싱
+	// 2) 폼 파싱
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
 	}
-
-	// 3.3) Slack Verification Token 확인 (보안을 위해 반드시 넣을 것)
+	// 3) Slack Verification Token 검증
 	slackToken := r.FormValue("token")
 	expectedToken := os.Getenv("SLACK_VERIFICATION_TOKEN")
 	if expectedToken == "" {
-		log.Println("⚠️SLACK_VERIFICATION_TOKEN 환경변수가 설정되지 않았습니다.")
+		log.Println("⚠️ SLACK_VERIFICATION_TOKEN이 설정되어 있지 않습니다.")
 	}
 	if slackToken != expectedToken {
-		// 토큰이 일치하지 않으면 Unauthorized
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-
-	// 3.4) 사용자 입력(텍스트) 가져오기
+	// 4) 사용자명 읽기
 	rawText := strings.TrimSpace(r.FormValue("text"))
 	if rawText == "" {
-		// 예시 응답: “사용자명을 입력해주세요.”
 		resp := SlackResponse{
 			ResponseType: "ephemeral",
-			Text:         "❗️ 사용자명을 입력해주세요.\n예: `/grass octocat`",
+			Text:         "❗️ 사용자명을 입력해주세요.\n예: `/status octocat`",
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(resp)
 		return
 	}
+	username := strings.Fields(rawText)[0]
 
-	// 3.5) “텍스트를 나눠서” 복수 사용자 지원 여지 열어두기
-	args := strings.Fields(rawText)
-	// 현재는 첫 번째 인자만 처리 (확장 시 모든 args 순회 가능)
-	username := args[0]
-
-	// 3.6) GitHub User 정보 조회 (Rate Limit 해제용 토큰 사용 옵션)
+	// 5) GitHub API로 기본 정보 가져오기
 	user, err := fetchGitHubUser(username)
 	if err != nil {
 		resp := SlackResponse{
@@ -91,20 +82,18 @@ func handleSlackCommand(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(resp)
 		return
 	}
-
-	// 3.7) DisplayName 결정 (Name이 비어 있으면 Login으로 대체)
+	// 6) DisplayName 결정
 	displayName := user.Name
 	if displayName == "" {
 		displayName = user.Login
 	}
-
-	// 3.8) Slack 메시지 본문 구성 (Markdown 사용 가능)
+	// 7) 슬랙 메시지 텍스트 생성 (GitHubStatus 스타일)
 	text := fmt.Sprintf(
-		"📊 *%s* (`%s`)\n"+
-			"- 🗂 *Public Repos:* %d\n"+
-			"- 👥 *Followers:* %d\n"+
-			"- 🧾 *Bio:* %s\n"+
-			"- 🔗 <%s|GitHub 프로필 보기>",
+		":bar_chart: *%s* (`%s`)\n"+
+			"- :card_index_dividers: Public Repos: %d\n"+
+			"- :busts_in_silhouette: Followers: %d\n"+
+			"- :receipt: Bio: %s\n"+
+			"- :link: <%s|GitHub 프로필 보기>",
 		displayName,
 		user.Login,
 		user.PublicRepos,
@@ -112,8 +101,6 @@ func handleSlackCommand(w http.ResponseWriter, r *http.Request) {
 		nullToEmpty(user.Bio),
 		user.HTMLURL,
 	)
-
-	// 3.9) Slack에 응답 (in_channel: 채널 공개, ephemeral: 본인만 보기)
 	resp := SlackResponse{
 		ResponseType: "in_channel",
 		Text:         text,
@@ -124,40 +111,154 @@ func handleSlackCommand(w http.ResponseWriter, r *http.Request) {
 }
 
 // ─────────────────────────────────────────────────────
-// 4) fetchGitHubUser: GitHub API로부터 사용자 정보 받아오기
+// handleSlackGrass: /grass {username} → GitHub 잔디 그래프
+// ─────────────────────────────────────────────────────
+func handleSlackGrass(w http.ResponseWriter, r *http.Request) {
+	log.Println("[/grass] 요청 수신")
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		log.Printf("[/grass] Form 파싱 실패: %v\n", err)
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	slackToken := r.FormValue("token")
+	expectedToken := os.Getenv("SLACK_VERIFICATION_TOKEN")
+	if expectedToken == "" {
+		log.Println("⚠️ SLACK_VERIFICATION_TOKEN이 설정되어 있지 않습니다.")
+	}
+	if slackToken != expectedToken {
+		log.Printf("[/grass] 슬랙 토큰 불일치: 받은값=%s, 기대값=%s\n", slackToken, expectedToken)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	rawText := strings.TrimSpace(r.FormValue("text"))
+	fields := strings.Fields(rawText)
+	if len(fields) == 0 {
+		resp := SlackResponse{
+			ResponseType: "ephemeral",
+			Text:         "❗️ 사용자명을 입력해주세요.\n예: `/grass octocat`",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
+	username := fields[0]
+
+	// 안전한 Block 구조체 정의
+	type TextBlock struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	type SectionBlock struct {
+		Type string     `json:"type"`
+		Text *TextBlock `json:"text"`
+	}
+	type ImageBlock struct {
+		Type     string `json:"type"`
+		ImageURL string `json:"image_url"`
+		AltText  string `json:"alt_text"`
+	}
+	/*
+		// image_url: 슬랙에서 렌더링 가능한 PNG
+		imageURL := fmt.Sprintf("https://ghchart.rshah.org/%s", username)
+
+		// Block Kit 응답 구성
+
+		blocks := []interface{}{
+			SectionBlock{
+				Type: "section",
+				Text: &TextBlock{
+					Type: "mrkdwn",
+					Text: fmt.Sprintf("🌱 *%s* (`%s`) 님의 GitHub 잔디 그래프입니다:", username, username),
+				},
+			},
+			ImageBlock{
+				Type:     "image",
+				ImageURL: imageURL,
+				AltText:  "GitHub Contributions Graph",
+			},
+		}
+
+			resp := SlackResponse{
+				ResponseType: "in_channel",
+				Blocks:       blocks,
+			}
+	*/
+	resp := SlackResponse{
+		ResponseType: "in_channel",
+		Text:         fmt.Sprintf("🌱 *%s* 님의 GitHub 잔디 그래프 보기:\n<https://ghchart.rshah.org/%s>", username, username),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	log.Printf("[/grass] 응답 JSON: %+v\n", resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("[/grass] JSON 인코딩 실패: %v\n", err)
+	}
+}
+
+// ─────────────────────────────────────────────────────
+// handleContribs: /contribs?user={username} → GitHub 잔디 SVG를 그대로 프록시
+// ─────────────────────────────────────────────────────
+func handleContribs(w http.ResponseWriter, r *http.Request) {
+	// user 파라미터 필수
+	username := r.URL.Query().Get("user")
+	if username == "" {
+		http.Error(w, "user query parameter is required", http.StatusBadRequest)
+		return
+	}
+	// GitHub 잔디 그래프 페이지 (SVG)
+	url := fmt.Sprintf("https://github.com/users/%s/contributions", username)
+	resp, err := http.Get(url)
+	if err != nil {
+		http.Error(w, "Failed to fetch contributions", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		http.Error(w, fmt.Sprintf("GitHub 응답 코드 %d: %s", resp.StatusCode, string(body)), http.StatusBadGateway)
+		return
+	}
+	// Content-Type: image/svg+xml 으로 설정 후, 그대로 복사
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.WriteHeader(http.StatusOK)
+	io.Copy(w, resp.Body)
+}
+
+// ─────────────────────────────────────────────────────
+// fetchGitHubUser: GitHub REST API에서 사용자 정보 가져오기
 // ─────────────────────────────────────────────────────
 func fetchGitHubUser(username string) (*GitHubUser, error) {
-	// 4.1) 기본 URL. username에 공백/특수문자 들어오면 그대로 URL 인코딩 하지 않도록 주의
 	url := fmt.Sprintf("https://api.github.com/users/%s", username)
-
-	// 4.2) HTTP 클라이언트 생성 및 요청 객체 만들기 (Rate Limit 해제용 토큰 사용 가능)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
-
-	// 4.3) 환경변수에 GITHUB_TOKEN이 설정되어 있으면, Authorization 헤더에 추가
+	// GITHUB_TOKEN이 있으면 인증용 헤더로 사용
 	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
 		req.Header.Set("Authorization", "token "+token)
 	}
-
-	// 4.4) User-Agent 헤더 추가 권고 (GitHub API 정책 상 필요)
 	req.Header.Set("User-Agent", "Go-Slack-GitHub-Bot")
-
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-
-	// 4.5) StatusCode 검사
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("GitHub 응답 코드 %d: %s", resp.StatusCode, string(body))
 	}
-
-	// 4.6) JSON 파싱
 	var user GitHubUser
 	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
 		return nil, err
@@ -166,29 +267,33 @@ func fetchGitHubUser(username string) (*GitHubUser, error) {
 }
 
 // ─────────────────────────────────────────────────────
-// 5) nullToEmpty: Bio가 비어 있을 때 대체 텍스트
+// nullToEmpty: Bio가 빈 문자열일 때 대체 텍스트
 // ─────────────────────────────────────────────────────
 func nullToEmpty(s string) string {
 	if s == "" {
-		return "_no bio_" // Markdown 이탤릭 표시
+		return "no bio"
 	}
 	return s
 }
 
 // ─────────────────────────────────────────────────────
-// 6) main: HTTP 서버 시작
+// main: HTTP 서버 시작, 핸들러 등록
 // ─────────────────────────────────────────────────────
 func main() {
-	// 6.1) 환경변수 체크 (개발 중 누락되었는지 로그로 확인)
+	// 환경변수 SLACK_VERIFICATION_TOKEN 로그
 	if os.Getenv("SLACK_VERIFICATION_TOKEN") == "" {
-		log.Println("⚠️ SLACK_VERIFICATION_TOKEN이 설정되어 있지 않습니다. 토큰 검증은 건너뛰어집니다.")
+		log.Println("⚠️ SLACK_VERIFICATION_TOKEN이 설정되어 있지 않습니다. 토큰 검증을 건너뜁니다.")
 	}
 
-	// 6.2) 핸들러 등록
-	http.HandleFunc("/grass", handleSlackCommand)
+	mux := http.NewServeMux()
+	// /status  → GitHub 기본 정보 (GitHubStatus 스타일)
+	mux.HandleFunc("/status", handleSlackStatus)
+	// /grass   → GitHub 잔디 그래프 (SVG 포함)
+	mux.HandleFunc("/grass", handleSlackGrass)
+	// /contribs → 실제 SVG를 Slack이 가져갈 수 있게 proxy
+	mux.HandleFunc("/contribs", handleContribs)
 
-	// 6.3) 서버 시작
-	addr := ":8080"
-	fmt.Printf("서버 실행 중... http://localhost%s/grass (POST)\n", addr)
-	log.Fatal(http.ListenAndServe(addr, nil))
+	port := "8080"
+	fmt.Printf("서버 실행 중... http://localhost:%s/{status,grass,contribs}\n", port)
+	log.Fatal(http.ListenAndServe(":"+port, mux))
 }

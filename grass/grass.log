@@ -1,0 +1,8 @@
+nohup: ignoring input
+서버 실행 중... http://localhost:8080/{status,grass,contribs}
+2025/06/01 15:10:34 [/grass] 요청 수신
+2025/06/01 15:10:34 [/grass] 응답 JSON: {ResponseType:in_channel Blocks:[] Text:🌱 *joonlog* 님의 GitHub 잔디 그래프 보기:
+<https://ghchart.rshah.org/joonlog>}
+2025/06/01 15:13:02 [/grass] 요청 수신
+2025/06/01 15:13:02 [/grass] 응답 JSON: {ResponseType:in_channel Blocks:[] Text:🌱 *haniscloud* 님의 GitHub 잔디 그래프 보기:
+<https://ghchart.rshah.org/haniscloud>}
