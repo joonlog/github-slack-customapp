@@ -181,7 +181,7 @@ func handleSlackGrass(w http.ResponseWriter, r *http.Request) {
 	tmpPng := fmt.Sprintf("/tmp/%s.png", username)
 	cmd := exec.Command("rsvg-convert", "-o", tmpPng, tmpSvg)
 	if err := cmd.Run(); err != nil {
-		http.Error(w, "PNG 변환 실패 (rsvg-convert)", http.StatusInternalServerError)
+		http.Error(w, "PNG 변환 실패", http.StatusInternalServerError)
 		return
 	}
 
